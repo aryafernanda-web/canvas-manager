@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Area Management - Tulungagung</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Canvas Manager</h2>
+                <button id="close-sidebar" class="mobile-only"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="stats-panel">
+                <div class="stat-card">
+                    <span class="stat-label">Progress Total</span>
+                    <div class="progress-bar-container">
+                        <div id="total-progress-bar" class="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <span id="total-progress-text" class="stat-value">0%</span>
+                </div>
+            </div>
+
+            <div class="filter-section">
+                <h3>Filter Status</h3>
+                <div class="filter-chips">
+                    <button class="filter-chip active" data-status="all">Semua</button>
+                    <button class="filter-chip" data-status="pending">Belum</button>
+                    <button class="filter-chip" data-status="progress">Sedang</button>
+                    <button class="filter-chip" data-status="done">Selesai</button>
+                </div>
+            </div>
+
+            <div class="marker-list-section">
+                <div class="section-header">
+                    <h3>Daftar Marker</h3>
+                    <span id="marker-count" class="count-badge">0</span>
+                </div>
+                <div id="marker-list" class="marker-list">
+                    <div class="empty-state">Belum ada marker</div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="route-btn" class="outline-btn" title="Klik untuk mulai menggambar rute di peta">
+                    <i class="fas fa-route"></i> Buat Rute
+                </button>
+                <button id="export-btn" class="outline-btn">
+                    <i class="fas fa-file-export"></i> Export Data
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-nav">
+                <button id="toggle-sidebar" class="menu-btn"><i class="fas fa-bars"></i></button>
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-marker" placeholder="Cari marker atau catatan...">
+                </div>
+                <div class="user-actions">
+                    <button id="highlight-empty" class="icon-btn" title="Highlight area (Kelurahan)">
+                        <i class="fas fa-layer-group"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div id="map"></div>
+
+            <!-- Route Mode Bar -->
+            <div id="route-mode-bar" style="display:none; position:absolute; top:90px; left:50%; transform:translateX(-50%); z-index:1000; background:#1e293b; color:white; padding:12px 20px; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,0.4); gap:0; flex-direction:column; align-items:stretch; min-width:340px; max-width:90vw;">
+                <!-- Header bar -->
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    <div style="width:36px;height:36px;border-radius:50%;background:#3b82f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="fas fa-route" style="font-size:0.9rem;"></i>
+                    </div>
+                    <div style="flex:1;">
+                        <div style="font-weight:700;font-size:0.95rem;">Mode Buat Rute</div>
+                        <div style="font-size:0.78rem;opacity:0.75;" id="route-instruction">Klik titik pertama di peta untuk mulai</div>
+                    </div>
+                    <div style="background:#3b82f6;padding:4px 10px;border-radius:20px;font-size:0.8rem;font-weight:600;white-space:nowrap;">
+                        <i class="fas fa-map-pin" style="margin-right:4px;"></i><span id="route-point-count">0 titik</span>
+                    </div>
+                </div>
+                <!-- Nama Rute Input -->
+                <div style="margin-bottom:10px;">
+                    <input type="text" id="route-name-input" placeholder="Nama rute (contoh: Jalur Kedungwaru)" 
+                        style="width:100%;padding:8px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.1);color:white;font-size:0.85rem;outline:none;" />
+                </div>
+                <!-- Info jarak -->
+                <div style="font-size:0.8rem;opacity:0.8;margin-bottom:10px;text-align:center;" id="route-distance-info">Belum ada rute &mdash; tambahkan minimal 2 titik</div>
+                <!-- Tombol aksi -->
+                <div style="display:flex;gap:8px;">
+                    <button id="route-undo-btn" style="flex:1;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.2);color:white;padding:8px;border-radius:8px;cursor:pointer;font-size:0.8rem;font-weight:600;">
+                        <i class="fas fa-undo" style="margin-right:4px;"></i>Hapus Titik
+                    </button>
+                    <button id="route-save-btn" style="flex:1;background:#22c55e;border:none;color:white;padding:8px;border-radius:8px;cursor:pointer;font-size:0.8rem;font-weight:600;opacity:0.5;" disabled>
+                        <i class="fas fa-save" style="margin-right:4px;"></i>Simpan Rute
+                    </button>
+                    <button id="route-cancel-btn" style="flex:1;background:#ef4444;border:none;color:white;padding:8px;border-radius:8px;cursor:pointer;font-size:0.8rem;font-weight:600;">
+                        <i class="fas fa-times" style="margin-right:4px;"></i>Batal
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cloud Status -->
+            <div id="cloud-status" style="position:absolute; bottom:100px; right:30px; z-index:1000; background:#22c55e; color:white; padding:8px 16px; border-radius:20px; font-size:0.8rem; font-weight:600; opacity:0; transition:opacity 0.4s;"></div>
+
+            <!-- Floating Action for Mobile -->
+            <button id="add-marker-mode" class="fab" title="Tambah Marker">
+                <i class="fas fa-plus"></i>
+            </button>
+        </main>
+
+        <!-- Marker Modal -->
+        <div id="marker-modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modal-title">Marker Detail</h3>
+                    <button class="close-modal">&times;</button>
+                </div>
+                <form id="marker-form">
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="marker-status" required>
+                            <option value="pending">Belum dikerjakan</option>
+                            <option value="progress">Sedang dikerjakan</option>
+                            <option value="done">Sudah selesai</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Catatan</label>
+                        <textarea id="marker-notes" placeholder="Tambahkan catatan di sini..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Tanggal</label>
+                        <input type="date" id="marker-date">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" id="delete-marker" class="danger-btn" style="display: none;">Hapus</button>
+                        <button type="submit" class="primary-btn">Simpan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Turf.js for spatial operations -->
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
