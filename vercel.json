@@ -1,17 +1,13 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "index.html", "use": "@vercel/static" }
-  ],
-  "routes": [
+  "headers": [
     {
-      "src": "/(.*)",
-      "dest": "/$1",
-      "headers": {
-        "X-Frame-Options": "ALLOWALL",
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "public, max-age=0, must-revalidate"
-      }
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "ALLOWALL" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
     }
   ]
 }
