@@ -172,8 +172,16 @@ const googleStreets = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&
 }).addTo(map);
 
 const cableGroup = L.layerGroup().addTo(map);
-const markerGroup = L.layerGroup().addTo(map);
+const markerGroup = L.markerClusterGroup ? L.markerClusterGroup().addTo(map) : L.layerGroup().addTo(map);
 const areaGroup = L.layerGroup().addTo(map);
+const userRoutesGroup = L.layerGroup().addTo(map); // Pindahkan ke sini agar konsisten
+
+// Pastikan urutan layer benar (rute di paling atas)
+userRoutesGroup.setZIndex(1000);
+markerGroup.setZIndex(900);
+
+// Fix untuk embed/iframe: paksa peta deteksi ukuran
+setTimeout(() => { map.invalidateSize(); }, 500);
 
 // --- UI Logic ---
 const dom = {
@@ -298,7 +306,8 @@ function renderCables() {
     });
 }
 
-const userRoutesGroup = L.layerGroup().addTo(map);
+const userRoutesGroup = L.layerGroup(); // Sudah dipindah ke atas
+// const userRoutesGroup = L.layerGroup().addTo(map);
 
 // --- Route Drawing: Manual Polyline (no external API, works in all contexts incl. embed) ---
 let currentRouteLine   = null;   // L.polyline saat sedang menggambar
@@ -684,38 +693,40 @@ document.getElementById('route-undo-btn')?.addEventListener('click', () => {
 
 // --- Initialization ---
 renderCables();
-// Load from cloud first, then render
-(async () => {
-    const cloudData = await loadFromCloud();
-    if (cloudData) {
-        // Merge cloud data into state — cloud wins
-        if (cloudData.markers) {
-            cloudData.markers.forEach(cm => {
-                const idx = state.markers.findIndex(m => m.id === cm.id);
-                if (idx !== -1) {
-                    state.markers[idx] = { ...state.markers[idx], ...cm };
-                } else {
-                    cm.kelurahan = getAssignedKelurahan(cm.lat, cm.lng);
-                    state.markers.push(cm);
-                }
-            });
-        }
-        if (cloudData.routes) {
-            state.routes = cloudData.routes;
-        }
-        // Save merged to localStorage
-        localStorage.setItem('canvas_markers', JSON.stringify(state.markers));
-        localStorage.setItem('canvas_routes', JSON.stringify(state.routes));
-    }
-    renderMarkers();
-    updateDashboard();
+renderMarkers(); // Render data lokal dulu (biar gak kosong nunggu cloud)
+updateDashboard();
+map.invalidateSize();
 
-    const savedView = JSON.parse(localStorage.getItem('canvas_map_view'));
-    if (savedView) {
-        map.setView([savedView.lat, savedView.lng], savedView.zoom);
-    } else if (state.markers.length > 0) {
-        const group = new L.featureGroup(state.markers.map(m => L.marker([m.lat, m.lng])));
-        map.fitBounds(group.getBounds());
+// Load from cloud
+(async () => {
+    try {
+        const cloudData = await loadFromCloud();
+        if (cloudData) {
+            // Merge cloud data into state — cloud wins
+            if (cloudData.markers) {
+                cloudData.markers.forEach(cm => {
+                    const idx = state.markers.findIndex(m => m.id === cm.id);
+                    if (idx !== -1) {
+                        state.markers[idx] = { ...state.markers[idx], ...cm };
+                    } else {
+                        cm.kelurahan = getAssignedKelurahan(cm.lat, cm.lng);
+                        state.markers.push(cm);
+                    }
+                });
+            }
+            if (cloudData.routes) {
+                state.routes = cloudData.routes;
+            }
+            // Save merged to localStorage
+            localStorage.setItem('canvas_markers', JSON.stringify(state.markers));
+            localStorage.setItem('canvas_routes', JSON.stringify(state.routes));
+        }
+    } catch (e) {
+        console.warn('Cloud sync skipped:', e);
+    } finally {
+        renderMarkers();
+        updateDashboard();
+        setTimeout(() => map.invalidateSize(), 1000); // Re-check size after sync
     }
 })();
 

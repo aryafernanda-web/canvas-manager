@@ -427,3 +427,12 @@ body {
 .leaflet-interactive[stroke-dasharray] {
     animation: dash-move 1s linear infinite;
 }
+
+@keyframes dash-move {
+    from {
+        stroke-dashoffset: 20;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
