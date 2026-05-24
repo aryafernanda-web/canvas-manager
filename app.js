@@ -118,8 +118,31 @@ function getAssignedKelurahan(lat, lng) {
 }
 
 // --- State Management ---
-let savedMarkers = JSON.parse(localStorage.getItem('canvas_markers')) || [];
-let savedRoutes = JSON.parse(localStorage.getItem('canvas_routes')) || [];
+function readStorage(key, fallback, { array = true } = {}) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        if (array) return Array.isArray(parsed) ? parsed : fallback;
+        return parsed ?? fallback;
+    } catch (e) {
+        console.warn('localStorage read failed:', key, e);
+        return fallback;
+    }
+}
+
+function writeStorage(key, value) {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+    } catch (e) {
+        console.warn('localStorage write failed:', key, e);
+        return false;
+    }
+}
+
+let savedMarkers = readStorage('canvas_markers', []);
+let savedRoutes = readStorage('canvas_routes', []);
 let state = {
     markers: BASE_POINTS.map(p => {
         const saved = savedMarkers.find(sm => sm.id === p.id || (sm.lat === p.lat && sm.lng === p.lng));
@@ -306,9 +329,6 @@ function renderCables() {
     });
 }
 
-const userRoutesGroup = L.layerGroup(); // Sudah dipindah ke atas
-// const userRoutesGroup = L.layerGroup().addTo(map);
-
 // --- Route Drawing: Manual Polyline (no external API, works in all contexts incl. embed) ---
 let currentRouteLine   = null;   // L.polyline saat sedang menggambar
 let currentRouteMarkers = [];    // marker titik bernomor
@@ -427,11 +447,28 @@ function stopRouting(save) {
     document.getElementById('map').style.cursor = '';
 }
 
+function normalizeRoutePoints(points) {
+    if (!Array.isArray(points)) return [];
+    return points
+        .map(p => {
+            if (Array.isArray(p) && p.length >= 2) return [Number(p[0]), Number(p[1])];
+            if (p && typeof p.lat === 'number' && typeof p.lng === 'number') return [p.lat, p.lng];
+            if (p && typeof p.latitude === 'number' && typeof p.longitude === 'number') {
+                return [p.latitude, p.longitude];
+            }
+            return null;
+        })
+        .filter(p => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+}
+
 function renderUserRoutes() {
     userRoutesGroup.clearLayers();
     state.routes.forEach(route => {
+        const latlngs = normalizeRoutePoints(route.points);
+        if (latlngs.length < 2) return;
+        route.points = latlngs;
         const color = COLORS[route.status] || COLORS.cable;
-        const polyline = L.polyline(route.points, {
+        const polyline = L.polyline(latlngs, {
             color: color,
             weight: 5,
             opacity: 0.85
@@ -542,9 +579,14 @@ function closeModal() {
 }
 
 function saveAll() {
+    state.routes = state.routes.map(r => ({
+        ...r,
+        points: normalizeRoutePoints(r.points)
+    })).filter(r => r.points.length >= 2);
+
     const data = { markers: state.markers, routes: state.routes };
-    localStorage.setItem('canvas_markers', JSON.stringify(state.markers));
-    localStorage.setItem('canvas_routes', JSON.stringify(state.routes));
+    writeStorage('canvas_markers', state.markers);
+    writeStorage('canvas_routes', state.routes);
     saveToCloud(data);
     renderMarkers();
     updateDashboard();
@@ -691,49 +733,69 @@ document.getElementById('route-undo-btn')?.addEventListener('click', () => {
     undoRoutePoint();
 });
 
+function mergeCloudData(cloudData) {
+    if (!cloudData) return;
+
+    if (Array.isArray(cloudData.markers)) {
+        cloudData.markers.forEach(cm => {
+            const idx = state.markers.findIndex(m => m.id === cm.id);
+            if (idx !== -1) {
+                state.markers[idx] = { ...state.markers[idx], ...cm };
+            } else {
+                cm.kelurahan = getAssignedKelurahan(cm.lat, cm.lng);
+                state.markers.push(cm);
+            }
+        });
+    }
+
+    if (Array.isArray(cloudData.routes)) {
+        cloudData.routes.forEach(cr => {
+            const normalized = {
+                ...cr,
+                points: normalizeRoutePoints(cr.points)
+            };
+            if (normalized.points.length < 2) return;
+            const idx = state.routes.findIndex(r => r.id === normalized.id);
+            if (idx !== -1) {
+                state.routes[idx] = { ...state.routes[idx], ...normalized };
+            } else {
+                state.routes.push(normalized);
+            }
+        });
+    }
+
+    writeStorage('canvas_markers', state.markers);
+    writeStorage('canvas_routes', state.routes);
+}
+
 // --- Initialization ---
+const savedView = readStorage('canvas_map_view', null, { array: false });
+if (savedView && Number.isFinite(savedView.lat) && Number.isFinite(savedView.lng)) {
+    map.setView([savedView.lat, savedView.lng], savedView.zoom || 14);
+}
+
 renderCables();
-renderMarkers(); // Render data lokal dulu (biar gak kosong nunggu cloud)
+renderMarkers();
 updateDashboard();
 map.invalidateSize();
 
-// Load from cloud
 (async () => {
     try {
         const cloudData = await loadFromCloud();
-        if (cloudData) {
-            // Merge cloud data into state — cloud wins
-            if (cloudData.markers) {
-                cloudData.markers.forEach(cm => {
-                    const idx = state.markers.findIndex(m => m.id === cm.id);
-                    if (idx !== -1) {
-                        state.markers[idx] = { ...state.markers[idx], ...cm };
-                    } else {
-                        cm.kelurahan = getAssignedKelurahan(cm.lat, cm.lng);
-                        state.markers.push(cm);
-                    }
-                });
-            }
-            if (cloudData.routes) {
-                state.routes = cloudData.routes;
-            }
-            // Save merged to localStorage
-            localStorage.setItem('canvas_markers', JSON.stringify(state.markers));
-            localStorage.setItem('canvas_routes', JSON.stringify(state.routes));
-        }
+        mergeCloudData(cloudData);
     } catch (e) {
         console.warn('Cloud sync skipped:', e);
     } finally {
         renderMarkers();
         updateDashboard();
-        setTimeout(() => map.invalidateSize(), 1000); // Re-check size after sync
+        setTimeout(() => map.invalidateSize(), 1000);
     }
 })();
 
 map.on('moveend', () => {
     const center = map.getCenter();
     const zoom = map.getZoom();
-    localStorage.setItem('canvas_map_view', JSON.stringify({ lat: center.lat, lng: center.lng, zoom }));
+    writeStorage('canvas_map_view', { lat: center.lat, lng: center.lng, zoom }, { array: false });
 });
 
 // Export
