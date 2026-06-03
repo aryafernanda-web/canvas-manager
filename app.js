@@ -3,22 +3,21 @@
  * Engine: Leaflet + Google Maps Tiles (High Reliability, No Key Needed)
  */
 
-// --- Cloud Config (JSONBin.io) ---
-// Ganti dengan API Key dan Bin ID Anda dari jsonbin.io
-const JSONBIN_API_KEY = '$2a$10$GANTI_DENGAN_API_KEY_ANDA';
-const JSONBIN_BIN_ID  = 'GANTI_DENGAN_BIN_ID_ANDA';
-const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
-let cloudSyncEnabled = JSONBIN_BIN_ID !== 'GANTI_DENGAN_BIN_ID_ANDA';
+// --- Cloud Config (VPS Server Sendiri) ---
+// Server berjalan di VPS Ubuntu 24.04: 103.93.132.76
+const SERVER_URL = 'http://103.93.132.76:3001';
+const API_KEY    = 'canvas-secret-key-2024'; // Harus sama dengan di server.js
+let cloudSyncEnabled = SERVER_URL.indexOf('YOUR_VPS_IP') === -1;
+
 
 async function loadFromCloud() {
     if (!cloudSyncEnabled) return null;
     try {
-        const res = await fetch(JSONBIN_URL + '/latest', {
-            headers: { 'X-Master-Key': JSONBIN_API_KEY }
+        const res = await fetch(`${SERVER_URL}/api/data`, {
+            headers: { 'x-api-key': API_KEY }
         });
-        if (!res.ok) throw new Error('Cloud load failed');
-        const json = await res.json();
-        return json.record;
+        if (!res.ok) throw new Error('Cloud load failed: ' + res.status);
+        return await res.json();
     } catch(e) {
         console.warn('Cloud load error, using localStorage:', e);
         return null;
@@ -28,21 +27,22 @@ async function loadFromCloud() {
 async function saveToCloud(data) {
     if (!cloudSyncEnabled) return;
     try {
-        await fetch(JSONBIN_URL, {
+        const res = await fetch(`${SERVER_URL}/api/data`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Master-Key': JSONBIN_API_KEY,
-                'X-Bin-Versioning': 'false'
+                'x-api-key': API_KEY
             },
             body: JSON.stringify(data)
         });
+        if (!res.ok) throw new Error('Save failed: ' + res.status);
         showCloudStatus('✓ Tersimpan ke cloud');
     } catch(e) {
         console.warn('Cloud save error:', e);
         showCloudStatus('⚠ Gagal sync cloud', true);
     }
 }
+
 
 function showCloudStatus(msg, isError = false) {
     let el = document.getElementById('cloud-status');
@@ -195,7 +195,8 @@ const googleStreets = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&
 }).addTo(map);
 
 const cableGroup = L.layerGroup().addTo(map);
-const markerGroup = L.markerClusterGroup ? L.markerClusterGroup().addTo(map) : L.layerGroup().addTo(map);
+// Gunakan layerGroup biasa — marker tidak akan digabung/cluster saat zoom out
+const markerGroup = L.layerGroup().addTo(map);
 const areaGroup = L.layerGroup().addTo(map);
 const userRoutesGroup = L.layerGroup().addTo(map); // Pindahkan ke sini agar konsisten
 
