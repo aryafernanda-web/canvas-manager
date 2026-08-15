@@ -1,12 +1,24 @@
 {
   "version": 2,
+  "framework": null,
+  "outputDirectory": ".",
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "app.js",     "use": "@vercel/static" },
+    { "src": "data.js",    "use": "@vercel/static" },
+    { "src": "style.css",  "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/(.*)", "dest": "/$1" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Frame-Options", "value": "ALLOWALL" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        { "key": "X-Frame-Options",              "value": "ALLOWALL" },
+        { "key": "Access-Control-Allow-Origin",  "value": "*" },
+        { "key": "Cache-Control",                "value": "public, max-age=0, must-revalidate" }
       ]
     }
   ]
