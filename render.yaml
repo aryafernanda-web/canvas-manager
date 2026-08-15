@@ -1,0 +1,17 @@
+# Render.com Blueprint — Canvas Manager
+# Deploy otomatis dari GitHub ke Render.com
+# Dokumentasi: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: canvas-manager
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: API_KEY
+        value: canvas-secret-key-2024
+      - key: NODE_ENV
+        value: production

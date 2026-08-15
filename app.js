@@ -3,11 +3,14 @@
  * Engine: Leaflet + Google Maps Tiles (High Reliability, No Key Needed)
  */
 
-// --- Cloud Config (VPS Server Sendiri) ---
-// Server berjalan di VPS Ubuntu 24.04: 103.93.132.76
-const SERVER_URL = 'https://canvas-biznet.duckdns.org';
+// --- Cloud Config (Auto-detect URL) ---
+// SERVER_URL otomatis mengikuti domain tempat app ini di-deploy:
+// - Render.com  → https://canvas-manager-xxxx.onrender.com
+// - VPS         → https://canvas-biznet.duckdns.org
+// - Lokal       → http://localhost:3001
+const SERVER_URL = window.location.origin;
 const API_KEY    = 'canvas-secret-key-2024'; // Harus sama dengan di server.js
-let cloudSyncEnabled = SERVER_URL.indexOf('YOUR_VPS_IP') === -1;
+let cloudSyncEnabled = true; // Selalu aktif — server melayani frontend & API sekaligus
 
 
 async function loadFromCloud() {
