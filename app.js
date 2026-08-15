@@ -5,7 +5,7 @@
 
 // --- Cloud Config (VPS Server Sendiri) ---
 // Server berjalan di VPS Ubuntu 24.04: 103.93.132.76
-const SERVER_URL = 'http://103.93.132.76:3001';
+const SERVER_URL = 'https://canvas-biznet.duckdns.org';
 const API_KEY    = 'canvas-secret-key-2024'; // Harus sama dengan di server.js
 let cloudSyncEnabled = SERVER_URL.indexOf('YOUR_VPS_IP') === -1;
 
@@ -117,6 +117,59 @@ function getAssignedKelurahan(lat, lng) {
     return closest.name;
 }
 
+/**
+ * Get Kelurahan by DP marker name prefix (verified), fallback to closest center point
+ */
+function getDpKelurahan(name, lat, lng) {
+    if (!name) return getAssignedKelurahan(lat, lng);
+    const upperName = name.toUpperCase();
+    if (upperName.startsWith('BJI') || upperName.includes('BJI')) return 'Beji';
+    if (upperName.startsWith('KDW') || upperName.includes('KDW') || upperName.includes('KEDUNGWARU')) return 'Kedungwaru';
+    if (upperName.startsWith('MGN') || upperName.includes('MGN') || upperName.includes('MANGUNSARI')) return 'Mangunsari';
+    if (upperName.startsWith('SRT') || upperName.includes('SRT') || upperName.includes('SERUT')) return 'Serut';
+    
+    return getAssignedKelurahan(lat, lng);
+}
+
+/**
+ * Assign route Kelurahan based on the closest marker (DP point), fallback to center points
+ */
+function getRouteAssignedKelurahan(lat, lng) {
+    if (!lat || !lng) return 'Lainnya';
+    let closestMarker = null;
+    let minDist = Infinity;
+
+    // Search through BASE_POINTS (defined from data.js)
+    if (typeof BASE_POINTS !== 'undefined') {
+        BASE_POINTS.forEach(m => {
+            const d = Math.sqrt(Math.pow(lat - m.lat, 2) + Math.pow(lng - m.lng, 2));
+            if (d < minDist) {
+                minDist = d;
+                closestMarker = m;
+            }
+        });
+    }
+
+    // Search through savedMarkers (local storage)
+    if (typeof savedMarkers !== 'undefined') {
+        savedMarkers.forEach(m => {
+            const d = Math.sqrt(Math.pow(lat - m.lat, 2) + Math.pow(lng - m.lng, 2));
+            if (d < minDist) {
+                minDist = d;
+                closestMarker = m;
+            }
+        });
+    }
+
+    // Within ~550 meters (0.005 degrees), align with the marker's Kelurahan
+    if (closestMarker && minDist < 0.005) {
+        return closestMarker.kelurahan || getDpKelurahan(closestMarker.name, closestMarker.lat, closestMarker.lng);
+    }
+
+    // Otherwise fallback to closest Kelurahan center point
+    return getAssignedKelurahan(lat, lng);
+}
+
 // --- State Management ---
 function readStorage(key, fallback, { array = true } = {}) {
     try {
@@ -154,10 +207,23 @@ let state = {
             status: saved ? saved.status : 'pending',
             notes: saved ? saved.notes : (p.desc || ''),
             date: saved ? saved.date : '',
-            kelurahan: getAssignedKelurahan(p.lat, p.lng)
+            kelurahan: getDpKelurahan(p.name, p.lat, p.lng)
         };
     }),
-    routes: savedRoutes,
+    routes: savedRoutes.map(r => {
+        if (!r.kelurahan && r.points && r.points.length > 0) {
+            const p = r.points[0];
+            let lat = null, lng = null;
+            if (Array.isArray(p)) { lat = p[0]; lng = p[1]; }
+            else if (p) { lat = p.lat; lng = p.lng; }
+            if (lat && lng) {
+                r.kelurahan = getRouteAssignedKelurahan(lat, lng);
+            } else {
+                r.kelurahan = 'Lainnya';
+            }
+        }
+        return r;
+    }),
     currentMarker: null,
     currentRouteObj: null,
     currentRoute: [],
@@ -169,7 +235,7 @@ let state = {
 // Add manual markers
 savedMarkers.forEach(sm => {
     if (!state.markers.some(m => m.id === sm.id)) {
-        sm.kelurahan = getAssignedKelurahan(sm.lat, sm.lng);
+        sm.kelurahan = sm.kelurahan || getDpKelurahan(sm.name, sm.lat, sm.lng);
         state.markers.push(sm);
     }
 });
@@ -235,8 +301,9 @@ const dom = {
 };
 
 function updateDashboard() {
-    const total = state.markers.length + state.routes.length;
-    const done = state.markers.filter(m => m.status === 'done').length + state.routes.filter(r => r.status === 'done').length;
+    // Progress hanya dihitung dari marker (bukan rute)
+    const total = state.markers.length;
+    const done = state.markers.filter(m => m.status === 'done').length;
     const percent = total === 0 ? 0 : Math.round((done / total) * 100);
 
     dom.totalProgressText.textContent = `${percent}%`;
@@ -250,21 +317,34 @@ function updateDashboard() {
 
 /**
  * Render Kelurahan statistics based on spatial grouping
+ * Includes both markers and routes in the per-kelurahan progress
  */
 function renderKelurahanProgress() {
     const groups = {};
     
     // Initialize with all known Kelurahan centers to show 0% progress for empty areas
     KELURAHAN_CENTERS.forEach(k => {
-        groups[k.name] = { total: 0, done: 0, points: [] };
+        groups[k.name] = { total: 0, done: 0, progress: 0, points: [] };
     });
 
+    // Count ONLY markers for progress calculation (routes are display-only)
     state.markers.forEach(m => {
         const kel = m.kelurahan;
-        if (!groups[kel]) groups[kel] = { total: 0, done: 0, points: [] };
+        if (!groups[kel]) groups[kel] = { total: 0, done: 0, progress: 0, points: [] };
         groups[kel].total++;
         if (m.status === 'done') groups[kel].done++;
+        if (m.status === 'progress') groups[kel].progress++;
         groups[kel].points.push([m.lng, m.lat]);
+    });
+
+    // Routes: only add points for convex hull visualization, NOT counted in progress
+    state.routes.forEach(r => {
+        const kel = r.kelurahan || 'Lainnya';
+        if (!groups[kel]) groups[kel] = { total: 0, done: 0, progress: 0, points: [] };
+        const normalized = normalizeRoutePoints(r.points);
+        normalized.forEach(pt => {
+            groups[kel].points.push([pt[1], pt[0]]); // Turf expects [lng, lat]
+        });
     });
 
     areaGroup.clearLayers();
@@ -285,6 +365,8 @@ function renderKelurahanProgress() {
 
     list.innerHTML = sortedEntries.map(([name, stats]) => {
         const p = Math.round((stats.done / stats.total) * 100);
+        const inProgress = stats.progress > 0;
+        const barColor = p === 100 ? 'var(--success)' : inProgress ? 'var(--warning)' : '#ef4444';
 
         // Highlight Polygon (Convex Hull) on map if highlight is active
         if (isHighlightActive && stats.points.length >= 3) {
@@ -298,19 +380,26 @@ function renderKelurahanProgress() {
                             fillOpacity: 0.15,
                             dashArray: '5, 5'
                         }
-                    }).bindTooltip(`Kelurahan ${name}: ${p}%`).addTo(areaGroup);
+                    }).bindTooltip(`Kelurahan ${name}: ${p}% (${stats.done}/${stats.total})`).addTo(areaGroup);
                 }
             } catch (e) {}
         }
+
+        const routeCount = state.routes.filter(r => (r.kelurahan || 'Lainnya') === name).length;
+        const markerCount = state.markers.filter(m => m.kelurahan === name).length;
 
         return `
             <div class="area-stat-card">
                 <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
                     <span>Kel. ${name}</span>
-                    <span>${p}%</span>
+                    <span>${p}% <span style="opacity:0.6;font-weight:400;font-size:0.72rem;">(${stats.done}/${stats.total})</span></span>
                 </div>
                 <div class="progress-bar-container" style="height: 4px; margin: 4px 0;">
-                    <div class="progress-bar" style="width: ${p}%; background: ${p === 100 ? 'var(--success)' : 'var(--warning)'};"></div>
+                    <div class="progress-bar" style="width: ${p}%; background: ${barColor};"></div>
+                </div>
+                <div style="display:flex;gap:8px;font-size:0.7rem;opacity:0.65;margin-top:2px;">
+                    ${markerCount > 0 ? `<span><i class="fas fa-map-marker-alt" style="margin-right:2px;"></i>${markerCount} marker</span>` : ''}
+                    ${routeCount > 0 ? `<span><i class="fas fa-route" style="margin-right:2px;"></i>${routeCount} rute</span>` : ''}
                 </div>
             </div>
         `;
@@ -427,13 +516,15 @@ function _updateRouteUI() {
 function stopRouting(save) {
     const routeName = dom.routeNameInput ? dom.routeNameInput.value.trim() : '';
     if (save && pendingRoutePoints && pendingRoutePoints.length > 1) {
+        const firstPoint = pendingRoutePoints[0];
         const newRoute = {
             id: 'route_' + Date.now(),
             points: pendingRoutePoints,
             name: routeName || 'Jalur Baru',
             status: 'pending',
             notes: '',
-            date: new Date().toISOString().split('T')[0]
+            date: new Date().toISOString().split('T')[0],
+            kelurahan: getRouteAssignedKelurahan(firstPoint[0], firstPoint[1])
         };
         state.routes.push(newRoute);
         saveAll();
@@ -513,7 +604,7 @@ function renderMarkers() {
 
     const allItems = [
         ...state.markers.map(m => ({ ...m, type: 'marker' })),
-        ...state.routes.map(r => ({ ...r, type: 'route' }))
+        ...state.routes.map(r => ({ ...r, type: 'route', kelurahan: r.kelurahan || 'Lainnya' }))
     ];
 
     const filtered = allItems.filter(item => {
@@ -532,7 +623,8 @@ function renderMarkers() {
                 ${item.name}
             </div>
             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
-                ${item.type === 'marker' ? 'Kel. ' + item.kelurahan : 'Jalur'}
+                Kel. ${item.kelurahan}
+                ${item.type === 'route' ? '<span style="margin-left:4px;opacity:0.6;">· Jalur</span>' : ''}
             </div>
         `;
         div.onclick = () => {
@@ -566,6 +658,17 @@ function openModal(item = null, type = 'marker') {
         dom.notes.value = item.notes || '';
         dom.status.value = item.status || 'pending';
         dom.date.value = item.date || new Date().toISOString().split('T')[0];
+
+        // Populate kelurahan dropdown
+        const kelSelect = document.getElementById('marker-kelurahan');
+        if (kelSelect) {
+            const sortedKels = [...KELURAHAN_CENTERS].sort((a, b) => a.name.localeCompare(b.name));
+            kelSelect.innerHTML = sortedKels.map(k => 
+                `<option value="${k.name}">${k.name}</option>`
+            ).join('') + '<option value="Lainnya">Lainnya</option>';
+            kelSelect.value = item.kelurahan || 'Lainnya';
+        }
+
         dom.deleteBtn.style.display = 'block';
         dom.modal.style.display = 'flex';
     }
@@ -576,6 +679,8 @@ function closeModal() {
     state.currentMarker = null;
     state.currentRouteObj = null;
     state.addMode = false;
+    dom.addModeBtn.innerHTML = '<i class="fas fa-plus"></i>';
+    dom.addModeBtn.setAttribute('title', 'Tambah Marker');
     dom.addModeBtn.style.background = 'var(--primary)';
 }
 
@@ -611,15 +716,38 @@ map.on('click', (e) => {
         status: 'pending',
         notes: '',
         date: new Date().toISOString().split('T')[0],
-        kelurahan: getAssignedKelurahan(e.latlng.lat, e.latlng.lng)
+        kelurahan: getDpKelurahan('Marker Baru', e.latlng.lat, e.latlng.lng)
     };
     state.markers.push(newMarker);
     saveMarkers();
     openModal(newMarker, 'marker');
 });
 
+/**
+ * Auto-update nearby DP markers (within ~50 meters) to same status
+ * when user saves a marker. This prevents double-work for adjacent DPs.
+ */
+function autoUpdateNearbyMarkers(savedMarker, newStatus) {
+    const RADIUS_M = 50; // meters
+    state.markers.forEach((m, i) => {
+        if (m.id === savedMarker.id) return; // skip diri sendiri
+        // Haversine distance in meters
+        const R = 6371000;
+        const dLat = (m.lat - savedMarker.lat) * Math.PI / 180;
+        const dLng = (m.lng - savedMarker.lng) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(savedMarker.lat * Math.PI/180) * Math.cos(m.lat * Math.PI/180) * Math.sin(dLng/2)**2;
+        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        if (dist <= RADIUS_M && m.status === 'pending') {
+            state.markers[i] = { ...state.markers[i], status: newStatus, date: savedMarker.date || new Date().toISOString().split('T')[0] };
+        }
+    });
+}
+
 dom.form.onsubmit = (e) => {
     e.preventDefault();
+    const kelSelect = document.getElementById('marker-kelurahan');
+    const selectedKel = kelSelect ? kelSelect.value : 'Lainnya';
+
     if (state.currentMarker) {
         const index = state.markers.findIndex(m => m.id === state.currentMarker.id);
         if (index !== -1) {
@@ -627,8 +755,13 @@ dom.form.onsubmit = (e) => {
                 ...state.markers[index],
                 status: dom.status.value,
                 notes: dom.notes.value,
-                date: dom.date.value
+                date: dom.date.value,
+                kelurahan: selectedKel
             };
+            // Auto-update DP terdekat (radius 50m) jika status bukan pending
+            if (dom.status.value !== 'pending') {
+                autoUpdateNearbyMarkers(state.markers[index], dom.status.value);
+            }
         }
         saveMarkers();
     } else if (state.currentRouteObj) {
@@ -638,7 +771,8 @@ dom.form.onsubmit = (e) => {
                 ...state.routes[index],
                 status: dom.status.value,
                 notes: dom.notes.value,
-                date: dom.date.value
+                date: dom.date.value,
+                kelurahan: selectedKel
             };
         }
         saveRoutes();
@@ -662,12 +796,11 @@ dom.routeBtn.onclick = () => {
     state.drawRouteMode = !state.drawRouteMode;
     const routeBar = document.getElementById('route-mode-bar');
     if (state.drawRouteMode) {
-        dom.routeBtn.innerHTML = '<i class="fas fa-times-circle"></i> Keluar Mode Rute';
-        dom.routeBtn.style.background = '#ef4444';
-        dom.routeBtn.style.color = 'white';
-        dom.routeBtn.style.border = 'none';
+        dom.routeBtn.innerHTML = '<i class="fas fa-times-circle"></i>';
+        dom.routeBtn.setAttribute('title', 'Keluar Mode Rute');
+        dom.routeBtn.classList.add('active');
         state.addMode = false;
-        dom.addModeBtn.style.background = 'var(--primary)';
+        dom.addModeBtn.classList.remove('active');
         if (routeBar) routeBar.style.display = 'flex';
         // Reset input nama rute
         if (dom.routeNameInput) dom.routeNameInput.value = '';
@@ -685,10 +818,9 @@ dom.routeBtn.onclick = () => {
 
 function _exitRouteMode(save = false) {
     state.drawRouteMode = false;
-    dom.routeBtn.innerHTML = '<i class="fas fa-route"></i> Buat Rute';
-    dom.routeBtn.style.background = 'transparent';
-    dom.routeBtn.style.color = 'var(--text-main)';
-    dom.routeBtn.style.border = '1px solid var(--border)';
+    dom.routeBtn.innerHTML = '<i class="fas fa-route"></i>';
+    dom.routeBtn.setAttribute('title', 'Buat Rute Baru');
+    dom.routeBtn.classList.remove('active');
     const routeBar = document.getElementById('route-mode-bar');
     if (routeBar) routeBar.style.display = 'none';
     document.getElementById('map').style.cursor = '';
@@ -702,7 +834,15 @@ dom.highlightBtn.onclick = () => {
 
 dom.addModeBtn.onclick = () => {
     state.addMode = !state.addMode;
-    dom.addModeBtn.style.background = state.addMode ? COLORS.done : 'var(--primary)';
+    if (state.addMode) {
+        dom.addModeBtn.innerHTML = '<i class="fas fa-times"></i>';
+        dom.addModeBtn.setAttribute('title', 'Keluar Mode Tambah Marker');
+        dom.addModeBtn.style.background = COLORS.done;
+    } else {
+        dom.addModeBtn.innerHTML = '<i class="fas fa-plus"></i>';
+        dom.addModeBtn.setAttribute('title', 'Tambah Marker');
+        dom.addModeBtn.style.background = 'var(--primary)';
+    }
 };
 
 dom.filterChips.forEach(chip => {
@@ -743,7 +883,7 @@ function mergeCloudData(cloudData) {
             if (idx !== -1) {
                 state.markers[idx] = { ...state.markers[idx], ...cm };
             } else {
-                cm.kelurahan = getAssignedKelurahan(cm.lat, cm.lng);
+                cm.kelurahan = cm.kelurahan || getDpKelurahan(cm.name, cm.lat, cm.lng);
                 state.markers.push(cm);
             }
         });
@@ -756,6 +896,9 @@ function mergeCloudData(cloudData) {
                 points: normalizeRoutePoints(cr.points)
             };
             if (normalized.points.length < 2) return;
+            if (!normalized.kelurahan && normalized.points.length > 0) {
+                normalized.kelurahan = getRouteAssignedKelurahan(normalized.points[0][0], normalized.points[0][1]);
+            }
             const idx = state.routes.findIndex(r => r.id === normalized.id);
             if (idx !== -1) {
                 state.routes[idx] = { ...state.routes[idx], ...normalized };

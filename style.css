@@ -273,25 +273,70 @@ body {
     color: var(--text-main);
 }
 
-.fab {
+.fab-group {
     position: absolute;
     bottom: 30px;
     right: 30px;
-    width: 60px;
-    height: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 999;
+    align-items: flex-end;
+}
+
+.fab {
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    background: var(--primary);
-    color: white;
     border: none;
     box-shadow: var(--shadow-lg);
     cursor: pointer;
-    font-size: 1.5rem;
-    z-index: 999;
-    transition: transform 0.2s;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
 }
 
 .fab:hover {
-    transform: scale(1.05);
+    transform: scale(1.1);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.2);
+}
+
+.fab-add {
+    background: var(--primary);
+    color: white;
+}
+
+.fab-route {
+    background: #f59e0b;
+    color: white;
+}
+
+.fab-route.active {
+    background: #ef4444;
+}
+
+/* Tooltip label di samping FAB */
+.fab::before {
+    content: attr(title);
+    position: absolute;
+    right: 68px;
+    background: rgba(15,23,42,0.85);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.fab:hover::before {
+    opacity: 1;
 }
 
 /* Modals */

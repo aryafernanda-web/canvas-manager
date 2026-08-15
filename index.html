@@ -55,9 +55,6 @@
             </div>
 
             <div class="sidebar-footer">
-                <button id="route-btn" class="outline-btn" title="Klik untuk mulai menggambar rute di peta">
-                    <i class="fas fa-route"></i> Buat Rute
-                </button>
                 <button id="export-btn" class="outline-btn">
                     <i class="fas fa-file-export"></i> Export Data
                 </button>
@@ -120,10 +117,15 @@
             <!-- Cloud Status -->
             <div id="cloud-status" style="position:absolute; bottom:100px; right:30px; z-index:1000; background:#22c55e; color:white; padding:8px 16px; border-radius:20px; font-size:0.8rem; font-weight:600; opacity:0; transition:opacity 0.4s;"></div>
 
-            <!-- Floating Action for Mobile -->
-            <button id="add-marker-mode" class="fab" title="Tambah Marker">
-                <i class="fas fa-plus"></i>
-            </button>
+            <!-- Floating Action Buttons -->
+            <div class="fab-group">
+                <button id="add-marker-mode" class="fab fab-add" title="Tambah Marker">
+                    <i class="fas fa-plus"></i>
+                </button>
+                <button id="route-btn" class="fab fab-route" title="Buat Rute Baru">
+                    <i class="fas fa-route"></i>
+                </button>
+            </div>
         </main>
 
         <!-- Marker Modal -->
@@ -141,6 +143,10 @@
                             <option value="progress">Sedang dikerjakan</option>
                             <option value="done">Sudah selesai</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Kelurahan</label>
+                        <select id="marker-kelurahan" required></select>
                     </div>
                     <div class="form-group">
                         <label>Catatan</label>

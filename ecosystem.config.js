@@ -1,6 +1,3 @@
-# ecosystem.config.js — Konfigurasi PM2 untuk menjaga server tetap berjalan
-# PM2 otomatis restart server jika crash, dan bisa autostart saat VPS reboot
-
 module.exports = {
   apps: [{
     name: 'canvas-manager',
@@ -12,7 +9,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3001,
-      API_KEY: 'canvas-secret-key-2024'   // GANTI dengan key rahasia Anda
+      API_KEY: 'canvas-secret-key-2024'
     },
     error_file: 'logs/err.log',
     out_file: 'logs/out.log',
