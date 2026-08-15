@@ -13,7 +13,7 @@
 //   5. JSONBIN_BIN_ID otomatis tersimpan di localStorage
 // ═══════════════════════════════════════════════════════════════
 
-const JSONBIN_API_KEY = '$2a$10$PASTE_API_KEY_DISINI'; // ← Ganti dengan X-Master-Key dari jsonbin.io
+const JSONBIN_API_KEY = '$2a$10$pXGfTUs4x.XGymw.duL06eNye8h5D2nnWAAyEmP4i05ZNlbScal4q'; // JSONBin.io X-Master-Key
 const JSONBIN_BASE    = 'https://api.jsonbin.io/v3/b';
 
 // Cek apakah JSONBin sudah dikonfigurasi (key sudah diisi)
