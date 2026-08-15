@@ -3,49 +3,97 @@
  * Engine: Leaflet + Google Maps Tiles (High Reliability, No Key Needed)
  */
 
-// --- Cloud Config (Auto-detect URL) ---
-// SERVER_URL otomatis mengikuti domain tempat app ini di-deploy:
-// - Render.com  → https://canvas-manager-xxxx.onrender.com
-// - VPS         → https://canvas-biznet.duckdns.org
-// - Lokal       → http://localhost:3001
-const SERVER_URL = window.location.origin;
-const API_KEY    = 'canvas-secret-key-2024'; // Harus sama dengan di server.js
-let cloudSyncEnabled = true; // Selalu aktif — server melayani frontend & API sekaligus
+// ═══════════════════════════════════════════════════════════════
+//  CLOUD SYNC — JSONBin.io (Gratis, Tanpa Sign-in untuk User)
+//  Cara setup (sekali saja):
+//   1. Daftar gratis di https://jsonbin.io
+//   2. Dashboard → API Keys → copy "X-Master-Key"
+//   3. Isi JSONBIN_API_KEY di bawah
+//   4. Simpan, buka app → klik "Buat Bin Baru" (pertama kali)
+//   5. JSONBIN_BIN_ID otomatis tersimpan di localStorage
+// ═══════════════════════════════════════════════════════════════
 
+const JSONBIN_API_KEY = '$2a$10$PASTE_API_KEY_DISINI'; // ← Ganti dengan X-Master-Key dari jsonbin.io
+const JSONBIN_BASE    = 'https://api.jsonbin.io/v3/b';
+
+// Cek apakah JSONBin sudah dikonfigurasi (key sudah diisi)
+const jsonbinConfigured = !JSONBIN_API_KEY.includes('PASTE_API_KEY');
+
+// BIN ID disimpan di localStorage (dibuat otomatis pertama kali)
+function getStoredBinId() {
+    return localStorage.getItem('canvas_jsonbin_id') || null;
+}
+function setStoredBinId(id) {
+    localStorage.setItem('canvas_jsonbin_id', id);
+}
+
+// Buat bin baru di JSONBin (dipanggil sekali saat pertama kali)
+async function createJsonBin(initialData) {
+    const res = await fetch(JSONBIN_BASE, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSONBIN_API_KEY,
+            'X-Bin-Name': 'canvas-manager-data',
+            'X-Bin-Private': 'true'
+        },
+        body: JSON.stringify(initialData)
+    });
+    if (!res.ok) throw new Error('Gagal buat bin: ' + res.status);
+    const json = await res.json();
+    return json.metadata.id;
+}
 
 async function loadFromCloud() {
-    if (!cloudSyncEnabled) return null;
+    if (!jsonbinConfigured) return null;
     try {
-        const res = await fetch(`${SERVER_URL}/api/data`, {
-            headers: { 'x-api-key': API_KEY }
+        let binId = getStoredBinId();
+        // Jika belum ada bin, buat dulu
+        if (!binId) {
+            console.log('[JSONBin] Bin belum ada, buat baru...');
+            binId = await createJsonBin({ markers: [], routes: [] });
+            setStoredBinId(binId);
+            console.log('[JSONBin] Bin dibuat:', binId);
+            return { markers: [], routes: [] };
+        }
+        const res = await fetch(`${JSONBIN_BASE}/${binId}/latest`, {
+            headers: { 'X-Master-Key': JSONBIN_API_KEY }
         });
-        if (!res.ok) throw new Error('Cloud load failed: ' + res.status);
-        return await res.json();
+        if (!res.ok) throw new Error('JSONBin load failed: ' + res.status);
+        const json = await res.json();
+        return json.record;
     } catch(e) {
-        console.warn('Cloud load error, using localStorage:', e);
+        console.warn('[JSONBin] Load error, fallback ke localStorage:', e);
         return null;
     }
 }
 
 async function saveToCloud(data) {
-    if (!cloudSyncEnabled) return;
+    if (!jsonbinConfigured) return;
     try {
-        const res = await fetch(`${SERVER_URL}/api/data`, {
+        let binId = getStoredBinId();
+        if (!binId) {
+            // Buat bin baru dan simpan data
+            binId = await createJsonBin(data);
+            setStoredBinId(binId);
+            showCloudStatus('☁ Bin baru dibuat & data tersimpan!');
+            return;
+        }
+        const res = await fetch(`${JSONBIN_BASE}/${binId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                'x-api-key': API_KEY
+                'X-Master-Key': JSONBIN_API_KEY
             },
             body: JSON.stringify(data)
         });
-        if (!res.ok) throw new Error('Save failed: ' + res.status);
-        showCloudStatus('✓ Tersimpan ke cloud');
+        if (!res.ok) throw new Error('JSONBin save failed: ' + res.status);
+        showCloudStatus('✓ Tersimpan ke cloud (JSONBin)');
     } catch(e) {
-        console.warn('Cloud save error:', e);
+        console.warn('[JSONBin] Save error:', e);
         showCloudStatus('⚠ Gagal sync cloud', true);
     }
 }
-
 
 function showCloudStatus(msg, isError = false) {
     let el = document.getElementById('cloud-status');
